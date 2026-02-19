@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sushi Counter 🍣</title>
+    <style>
+        :root {
+            --bg-color: #1a1a1a;
+            --text-color: #f0f0f0;
+            --accent: #ff4757;
+            --accent-hover: #ff6b81;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            overflow: hidden;
+            user-select: none;
+            touch-action: manipulation;
+        }
+
+        .screen {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            transition: opacity 0.3s;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* --- LOGIN SCREEN --- */
+        #login-screen { background-color: var(--bg-color); z-index: 10; }
+        h1 { margin-bottom: 20px; font-size: 2rem; text-align: center; }
+        
+        input {
+            padding: 15px;
+            font-size: 1.2rem;
+            border-radius: 8px;
+            border: 2px solid #333;
+            background: #222;
+            color: #fff;
+            margin-bottom: 20px;
+            text-align: center;
+            width: 80%;
+            max-width: 300px;
+        }
+
+        button {
+            padding: 15px 30px;
+            font-size: 1.2rem;
+            border: none;
+            border-radius: 8px;
+            background-color: var(--accent);
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        button:active { background-color: var(--accent-hover); transform: scale(0.98); }
+
+        /* --- COUNTER SCREEN --- */
+        #counter-screen { cursor: pointer; z-index: 1; }
+        .sushi-icon { font-size: 4rem; margin-bottom: 10px; pointer-events: none; }
+        
+        #count-display {
+            font-size: 8rem;
+            font-weight: 800;
+            margin: 0;
+            pointer-events: none;
+            color: var(--accent);
+        }
+
+        .user-label { font-size: 1.5rem; margin-top: -10px; color: #aaa; pointer-events: none; }
+
+        .ui-controls {
+            position: absolute;
+            bottom: 30px;
+            display: flex;
+            gap: 15px;
+            z-index: 5;
+        }
+
+        .btn-small { padding: 10px 20px; font-size: 1rem; background-color: #333; }
+
+        /* --- LEADERBOARD OVERLAY --- */
+        #leaderboard-overlay {
+            background-color: rgba(26, 26, 26, 0.95);
+            z-index: 20;
+            justify-content: flex-start;
+            padding-top: 50px;
+        }
+
+        .leaderboard-list {
+            list-style: none;
+            padding: 0;
+            width: 80%;
+            max-width: 400px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
+
+        .leaderboard-list li {
+            background: #333;
+            margin-bottom: 10px;
+            padding: 15px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 1.2rem;
+        }
+
+        .leaderboard-list li span:last-child { font-weight: bold; color: var(--accent); }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen" class="screen">
+        <div class="sushi-icon">🍣</div>
+        <h1>Chi sei?</h1>
+        <input type="text" id="username-input" placeholder="Il tuo nickname" autocomplete="off">
+        <button onclick="window.startGame()">Inizia a mangiare!</button>
+    </div>
+
+    <div id="counter-screen" class="screen hidden" onclick="window.incrementSushi(event)">
+        <div class="sushi-icon">🍣</div>
+        <h1 id="count-display">0</h1>
+        <div class="user-label" id="current-user-display">User</div>
+        
+        <div class="ui-controls">
+            <button class="btn-small" onclick="window.showLeaderboard(event)">Leaderboard</button>
+            <button class="btn-small" onclick="window.switchUser(event)">Cambia Utente</button>
+        </div>
+    </div>
+
+    <div id="leaderboard-overlay" class="screen hidden">
+        <h1>Classifica 🏆</h1>
+        <ul class="leaderboard-list" id="leaderboard-list">
+            </ul>
+        <button onclick="window.hideLeaderboard()">Chiudi</button>
+        <button class="btn-small" style="margin-top: 20px; background-color: #555;" onclick="window.resetLeaderboard()">Resetta Tutti i Dati</button>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+        import { getDatabase, ref, onValue, set, get, child } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+        // ⚠️ INSERISCI QUI I DATI DEL TUO PROGETTO FIREBASE ⚠️
+        const firebaseConfig = {
+            apiKey: "AIzaSyB0bpozGgcczTPRT68NlEAS90mC4Az33XE",
+            authDomain: "sushicounter-900df.firebaseapp.com",
+            projectId: "sushicounter-900df",
+            storageBucket: "sushicounter-900df.firebasestorage.app",
+            messagingSenderId: "120063106683",
+            appId: "1:120063106683:web:859c5ca7c3dd6c0dd54cde"
+        };
+
+        // Inizializza Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        // Variabili globali
+        let currentUser = localStorage.getItem('sushi_currentUser') || '';
+        let leaderboardData = {};
+
+        // Elementi DOM
+        const loginScreen = document.getElementById('login-screen');
+        const counterScreen = document.getElementById('counter-screen');
+        const leaderboardOverlay = document.getElementById('leaderboard-overlay');
+        const countDisplay = document.getElementById('count-display');
+        const userDisplay = document.getElementById('current-user-display');
+        const usernameInput = document.getElementById('username-input');
+
+        // Ascolta le modifiche del database in tempo reale
+        const usersRef = ref(db, 'sushi_users');
+        onValue(usersRef, (snapshot) => {
+            const data = snapshot.val();
+            leaderboardData = data || {};
+            
+            // Aggiorna l'interfaccia se l'utente è loggato
+            if (currentUser && leaderboardData[currentUser] !== undefined) {
+                countDisplay.innerText = leaderboardData[currentUser];
+            }
+            // Aggiorna la classifica visiva
+            updateLeaderboardUI();
+        });
+
+        // Controlla se c'è già un utente salvato nel telefono
+        if (currentUser && currentUser !== '') {
+            showCounterScreen();
+        }
+
+        window.startGame = function() {
+            const name = usernameInput.value.trim();
+            if (name === '') {
+                alert('Inserisci un nickname valido!');
+                return;
+            }
+            
+            currentUser = name;
+            localStorage.setItem('sushi_currentUser', currentUser);
+            
+            // Imposta a 0 su Firebase se l'utente è nuovo
+            if (leaderboardData[currentUser] === undefined) {
+                set(ref(db, 'sushi_users/' + currentUser), 0);
+            }
+
+            showCounterScreen();
+        }
+
+        function showCounterScreen() {
+            loginScreen.classList.add('hidden');
+            counterScreen.classList.remove('hidden');
+            userDisplay.innerText = currentUser;
+            countDisplay.innerText = leaderboardData[currentUser] || 0;
+        }
+
+        window.incrementSushi = function(e) {
+            if (e.target.tagName.toLowerCase() === 'button') return;
+
+            // Incremento preventivo locale per non far sentire lag all'utente
+            let currentScore = leaderboardData[currentUser] || 0;
+            currentScore++;
+            countDisplay.innerText = currentScore;
+            
+            // Aggiorna su Firebase
+            set(ref(db, 'sushi_users/' + currentUser), currentScore);
+
+            // Vibrazione per smartphone
+            if (navigator.vibrate) {
+                navigator.vibrate(50);
+            }
+        }
+
+        window.showLeaderboard = function(e) {
+            e.stopPropagation();
+            counterScreen.classList.add('hidden');
+            leaderboardOverlay.classList.remove('hidden');
+        }
+
+        window.hideLeaderboard = function() {
+            leaderboardOverlay.classList.add('hidden');
+            counterScreen.classList.remove('hidden');
+        }
+
+        function updateLeaderboardUI() {
+            const list = document.getElementById('leaderboard-list');
+            list.innerHTML = '';
+
+            const sortedUsers = Object.entries(leaderboardData).sort((a, b) => b[1] - a[1]);
+
+            sortedUsers.forEach((user, index) => {
+                const li = document.createElement('li');
+                let medal = '';
+                if(index === 0) medal = '🥇 ';
+                if(index === 1) medal = '🥈 ';
+                if(index === 2) medal = '🥉 ';
+
+                li.innerHTML = `<span>${medal}${user[0]}</span> <span>${user[1]}</span>`;
+                list.appendChild(li);
+            });
+        }
+
+        window.switchUser = function(e) {
+            e.stopPropagation();
+            localStorage.removeItem('sushi_currentUser');
+            currentUser = '';
+            usernameInput.value = '';
+            counterScreen.classList.add('hidden');
+            loginScreen.classList.remove('hidden');
+        }
+
+        window.resetLeaderboard = function() {
+            if(confirm("Sei sicuro di voler cancellare TUTTA la classifica per tutti i giocatori?")) {
+                set(ref(db, 'sushi_users'), {});
+                countDisplay.innerText = 0;
+            }
+        }
+    </script>
+</body>
+</html>
